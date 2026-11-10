@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b0a5a" />
+<title>Head to Head</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0b0a5a;
+    --bg-2: #13127a;
+    --line: #2a2a7a;
+    --text: #ffffff;
+    --muted: #7d82b8;
+    --blue: #1f6fa3;
+    --yellow: #e6f53a;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font-family: "Inter", "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    display: flex; justify-content: center;
+  }
+  .app { width: 100%; max-width: 1100px; padding: 40px 24px 64px; }
+
+  /* ---------- Head to head header ---------- */
+  .h2h {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    gap: 16px;
+  }
+  .player { display: flex; flex-direction: column; gap: 20px; }
+  .player.right { align-items: flex-end; text-align: right; }
+
+  .avatar {
+    --ring: var(--blue);
+    position: relative;
+    width: clamp(96px, 18vw, 216px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    border: 3px solid var(--ring);
+    overflow: hidden;
+    cursor: pointer;
+    background:
+      repeating-linear-gradient(135deg, transparent 0 7px, rgba(255,255,255,.13) 7px 9px) bottom / 100% 50% no-repeat,
+      var(--bg);
+  }
+  .player.right .avatar { --ring: var(--yellow); }
+  .avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .avatar .initials {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-weight: 800; font-size: clamp(32px, 6vw, 72px); letter-spacing: -1px;
+  }
+  .avatar::after {
+    content: "Change photo";
+    position: absolute; inset: auto 0 0 0; padding: 8px 0 12px;
+    font-size: 12px; text-align: center; background: rgba(0,0,0,.55);
+    opacity: 0; transition: opacity .2s;
+  }
+  .avatar:hover::after { opacity: 1; }
+
+  .name {
+    font-weight: 700;
+    font-size: clamp(22px, 3.6vw, 40px);
+    line-height: 1.5;
+    letter-spacing: -0.5px;
+    outline: none;
+    border-radius: 6px;
+    min-width: 2ch;
+    white-space: pre-line;
+    cursor: text;
+  }
+  .name:focus { background: rgba(255,255,255,.08); }
+
+  .country {
+    display: inline-flex; align-items: center; gap: 12px;
+    font-size: clamp(18px, 2.6vw, 30px); font-weight: 500;
+    position: relative; cursor: pointer;
+  }
+  .player.right .country { flex-direction: row-reverse; }
+  .country img {
+    width: clamp(44px, 6vw, 76px); aspect-ratio: 3/2; object-fit: cover;
+    border-radius: 8px; border: 2px solid #d9dbe8;
+  }
+  .flag-emoji { font-size: clamp(30px, 4vw, 52px); line-height: 1; }
+  .country select {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 16px;
+  }
+
+  .center {
+    display: flex; align-items: center; gap: clamp(12px, 3vw, 36px);
+    padding-top: clamp(0px, 1vw, 12px);
+  }
+  .score {
+    font-weight: 800; font-size: clamp(36px, 6vw, 68px);
+    min-width: 1.2ch; text-align: center;
+    transition: transform .25s;
+  }
+  .score.bump { transform: scale(1.25); }
+  .ring { position: relative; width: clamp(120px, 20vw, 252px); aspect-ratio: 1; }
+  .ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .ring circle { fill: none; stroke-width: 9; transition: stroke-dasharray .6s ease, stroke-dashoffset .6s ease; }
+  .ring .label {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #b9bde0; font-size: clamp(16px, 2.6vw, 32px); line-height: 1.5;
+  }
+
+  /* ---------- Win buttons ---------- */
+  .actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    margin-top: 36px;
+  }
+  .btn {
+    font: inherit; font-weight: 700; font-size: 18px;
+    border: 0; border-radius: 999px; padding: 16px 20px; cursor: pointer;
+    transition: transform .1s, filter .2s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn.p1 { background: var(--blue); color: #fff; }
+  .btn.p2 { background: var(--yellow); color: var(--bg); }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .btn.small { font-size: 14px; padding: 10px 16px; }
+
+  /* ---------- Tabs ---------- */
+  .tabs { display: flex; justify-content: center; gap: 48px; margin-top: 56px; }
+  .tab {
+    font: inherit; font-weight: 700; font-size: clamp(22px, 3.4vw, 40px);
+    background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0;
+    letter-spacing: -0.5px;
+  }
+  .tab.active { color: var(--text); }
+  .track { position: relative; height: 4px; background: #262a5e; margin-top: 18px; }
+  .track .bar { position: absolute; top: 0; height: 100%; background: var(--blue); transition: left .3s, width .3s; }
+
+  .panel { margin-top: 32px; }
+  .panel[hidden] { display: none; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat { background: var(--bg-2); border-radius: 16px; padding: 18px 20px; }
+  .stat .k { color: var(--muted); font-size: 14px; }
+  .stat .v { font-weight: 800; font-size: 28px; margin-top: 6px; }
+  .stat .v small { font-size: 14px; font-weight: 500; color: var(--muted); }
+
+  .log { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .log li {
+    display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 14px;
+    background: var(--bg-2); border-radius: 14px; padding: 14px 16px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .log .who { font-weight: 700; }
+  .log .meta { color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .log .scoreline { font-variant-numeric: tabular-nums; color: #d6d8ef; }
+  .icon-btn {
+    background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 18px; padding: 4px 6px;
+  }
+  .icon-btn:hover { color: var(--danger); }
+  .empty { color: var(--muted); text-align: center; padding: 32px 0; }
+
+  .footer { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
+
+  /* ---------- Modal ---------- */
+  dialog {
+    border: 0; border-radius: 20px; padding: 24px; width: min(420px, calc(100vw - 32px));
+    background: var(--bg-2); color: var(--text);
+  }
+  dialog::backdrop { background: rgba(0,0,20,.6); }
+  dialog h3 { margin: 0 0 16px; font-size: 22px; }
+  dialog label { display: block; color: var(--muted); font-size: 14px; margin: 14px 0 6px; }
+  dialog input {
+    width: 100%; font: inherit; font-size: 16px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  }
+  dialog .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 140%);
+    background: #fff; color: var(--bg); border-radius: 999px; padding: 12px 18px;
+    font-weight: 600; display: flex; gap: 14px; align-items: center;
+    transition: transform .3s; box-shadow: 0 10px 30px rgba(0,0,0,.3);
+  }
+  .toast.show { transform: translate(-50%, 0); }
+  .toast button { font: inherit; font-weight: 800; background: none; border: 0; color: var(--blue); cursor: pointer; }
+
+  @media (max-width: 640px) {
+    .app { padding: 24px 16px 48px; }
+    .h2h { grid-template-columns: 1fr 1fr; }
+    .center { grid-column: 1 / -1; grid-row: 1; justify-content: center; }
+    .tabs { gap: 28px; }
+    .log li { grid-template-columns: 10px 1fr auto; }
+    .log .scoreline { grid-column: 2; grid-row: 2; }
+  }
+</style>
+</head>
+<body>
+<main class="app">
+  <section class="h2h">
+    <div class="player left" data-p="0">
+      <div class="avatar" title="Change photo"></div>
+      <div class="name" contenteditable="true" spellcheck="false"></div>
+      <label class="country"><img alt="" /><span class="code"></span><select></select></label>
+    </div>
+
+    <div class="center">
+      <div class="score" id="s0">0</div>
+      <div class="ring">
+        <svg viewBox="0 0 100 100">
+          <circle id="ringBase" cx="50" cy="50" r="44" stroke="var(--blue)" />
+          <circle id="ringP2" cx="50" cy="50" r="44" stroke="var(--yellow)" />
+        </svg>
+        <div class="label"><span>Vs</span><span>wins</span></div>
+      </div>
+      <div class="score" id="s1">0</div>
+    </div>
+
+    <div class="player right" data-p="1">
+      <div class="avatar" title="Change photo"></div>
+      <div class="name" contenteditable="true" spellcheck="false"></div>
+      <label class="country"><img alt="" /><span class="code"></span><select></select></label>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button class="btn p1" data-win="0">+ Win</button>
+    <button class="btn p2" data-win="1">+ Win</button>
+  </div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="bio">Bio</button>
+    <button class="tab" data-tab="log">Match log</button>
+  </nav>
+  <div class="track"><div class="bar"></div></div>
+
+  <section class="panel" id="panel-bio">
+    <div class="stats" id="stats"></div>
+  </section>
+  <section class="panel" id="panel-log" hidden>
+    <ul class="log" id="log"></ul>
+  </section>
+
+  <div class="footer">
+    <button class="btn ghost small" id="exportBtn">Export</button>
+    <button class="btn ghost small" id="importBtn">Import</button>
+    <button class="btn ghost small" id="resetBtn">Reset</button>
+  </div>
+
+  <input type="file" id="photoInput" accept="image/*" hidden />
+  <input type="file" id="importInput" accept="application/json" hidden />
+</main>
+
+<dialog id="winDialog">
+  <form method="dialog" id="winForm">
+    <h3 id="winTitle">New win</h3>
+    <label for="winScore">Score (optional)</label>
+    <input id="winScore" placeholder="6-4 3-6 7-5" autocomplete="off" />
+    <label for="winDate">Date</label>
+    <input id="winDate" type="date" required />
+    <label for="winNote">Note (optional)</label>
+    <input id="winNote" placeholder="Saturday morning, court 3" autocomplete="off" />
+    <div class="row">
+      <button class="btn ghost small" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn p1 small" value="ok" id="winSave">Save win</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"><span id="toastMsg"></span><button id="toastUndo">Undo</button></div>
+
+<script>
+(() => {
+  const KEY = 'tennis-h2h-v1';
+  const COUNTRIES = [
+    ['VNM','vn'],['USA','us'],['ITA','it'],['FRA','fr'],['ESP','es'],['GBR','gb'],['DEU','de'],
+    ['JPN','jp'],['KOR','kr'],['CHN','cn'],['SGP','sg'],['THA','th'],['AUS','au'],['CAN','ca'],
+    ['SRB','rs'],['SUI','ch'],['NLD','nl'],['IND','in'],['BRA','br'],['ARG','ar']
+  ];
+
+  const defaults = () => ({
+    players: [
+      { name: 'Player\nOne', country: 'VNM', photo: '' },
+      { name: 'Player\nTwo', country: 'VNM', photo: '' }
+    ],
+    matches: [] // { id, winner: 0|1, date: 'YYYY-MM-DD', score, note }
+  });
+
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY)) || defaults(); } catch { state = defaults(); }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { alert('Could not save (storage full?). Try a smaller photo.'); } };
+
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const playerEls = $$('.player');
+  const today = () => new Date().toISOString().slice(0, 10);
+  const firstLine = (n) => n.replace(/\n/g, ' ').trim() || 'Player';
+  const initials = (n) => n.split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const flagEmoji = (iso) => iso.toUpperCase().replace(/./g, c => String.fromCodePoint(0x1F1A5 + c.charCodeAt(0)));
+  const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  // ---------- Players ----------
+  playerEls.forEach((el, i) => {
+    const sel = $('select', el);
+    sel.innerHTML = COUNTRIES.map(([c]) => `<option value="${c}">${c}</option>`).join('');
+    sel.addEventListener('change', () => { state.players[i].country = sel.value; save(); renderPlayers(); });
+
+    const nameEl = $('.name', el);
+    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); nameEl.blur(); } });
+    nameEl.addEventListener('blur', () => {
+      const v = nameEl.innerText.trim() || `Player ${i + 1}`;
+      state.players[i].name = v; save(); renderAll();
+    });
+
+    $('.avatar', el).addEventListener('click', () => { photoTarget = i; $('#photoInput').click(); });
+  });
+
+  let photoTarget = 0;
+  $('#photoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; e.target.value = '';
+    if (!file) return;
+    state.players[photoTarget].photo = await resizeImage(file, 320);
+    save(); renderPlayers();
+  });
+
+  function resizeImage(file, size) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas'); c.width = c.height = size;
+        const s = Math.min(img.width, img.height);
+        c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+        URL.revokeObjectURL(img.src);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  function renderPlayers() {
+    playerEls.forEach((el, i) => {
+      const p = state.players[i];
+      const nameEl = $('.name', el);
+      if (document.activeElement !== nameEl) nameEl.innerText = p.name;
+      const av = $('.avatar', el);
+      av.innerHTML = p.photo ? `<img src="${p.photo}" alt="">` : `<span class="initials">${esc(initials(p.name))}</span>`;
+      const iso = (COUNTRIES.find(c => c[0] === p.country) || COUNTRIES[0])[1];
+      const img = $('.country img, .country .flag-emoji', el);
+      img.onerror = () => { img.replaceWith(Object.assign(document.createElement('span'), { className: 'flag-emoji', textContent: flagEmoji(iso) })); };
+      if (img.tagName === 'IMG') img.src = `https://flagcdn.com/w160/${iso}.png`;
+      else img.textContent = flagEmoji(iso);
+      $('.country .code', el).textContent = p.country;
+      $('select', el).value = p.country;
+    });
+    $$('[data-win]').forEach(b => b.textContent = `+ Win ${firstLine(state.players[b.dataset.win].name).split(' ')[0]}`);
+  }
+
+  // ---------- Score + ring ----------
+  const C = 2 * Math.PI * 44;
+  let lastWins = null;
+  function renderScore() {
+    const w = [0, 1].map(i => state.matches.filter(m => m.winner === i).length);
+    [0, 1].forEach(i => {
+      const el = $('#s' + i);
+      el.textContent = w[i];
+      if (lastWins && lastWins[i] !== w[i]) { el.classList.add('bump'); setTimeout(() => el.classList.remove('bump'), 250); }
+    });
+    lastWins = w;
+    const total = w[0] + w[1];
+    const gap = total && w[0] && w[1] ? 1.2 : 0;           // small gap between arcs
+    const p2 = total ? (w[1] / total) * C : 0;
+    const p1 = total ? C - p2 : C;
+    const base = $('#ringBase'), y = $('#ringP2');
+    base.style.strokeOpacity = total ? 1 : 0.35;
+    // P2 (yellow) starts at 12 o'clock going clockwise, P1 (blue) fills the rest.
+    y.style.strokeDasharray = `${Math.max(p2 - gap, 0)} ${C}`;
+    y.style.strokeDashoffset = 0;
+    base.style.strokeDasharray = `${Math.max(p1 - gap, 0)} ${C}`;
+    base.style.strokeDashoffset = -p2;
+    return w;
+  }
+
+  // ---------- Stats ----------
+  function streak() {
+    const sorted = sortedMatches();
+    if (!sorted.length) return null;
+    const who = sorted[0].winner; let n = 0;
+    for (const m of sorted) { if (m.winner === who) n++; else break; }
+    return { who, n };
+  }
+  function sortedMatches() {
+    return [...state.matches].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  }
+  function renderStats(w) {
+    const total = w[0] + w[1];
+    const n = state.players.map(p => firstLine(p.name));
+    const s = streak();
+    const sorted = sortedMatches();
+    const last5 = sorted.slice(0, 5);
+    const form = (i) => last5.length ? last5.map(m => m.winner === i ? 'W' : 'L').join(' ') : '–';
+    const pct = (i) => total ? Math.round(w[i] / total * 100) + '%' : '–';
+    const best = (i) => {
+      let b = 0, c = 0;
+      [...sorted].reverse().forEach(m => { c = m.winner === i ? c + 1 : 0; b = Math.max(b, c); });
+      return b;
+    };
+    $('#stats').innerHTML = `
+      <div class="stat"><div class="k">Matches played</div><div class="v">${total}</div></div>
+      <div class="stat"><div class="k">Current streak</div><div class="v">${s ? s.n + ' <small>' + esc(n[s.who]) + '</small>' : '–'}</div></div>
+      <div class="stat"><div class="k">${esc(n[0])} win rate</div><div class="v">${pct(0)}</div></div>
+      <div class="stat"><div class="k">${esc(n[1])} win rate</div><div class="v">${pct(1)}</div></div>
+      <div class="stat"><div class="k">${esc(n[0])} best streak</div><div class="v">${best(0)}</div></div>
+      <div class="stat"><div class="k">${esc(n[1])} best streak</div><div class="v">${best(1)}</div></div>
+      <div class="stat"><div class="k">${esc(n[0])} last 5</div><div class="v" style="font-size:20px">${form(0)}</div></div>
+      <div class="stat"><div class="k">Last match</div><div class="v" style="font-size:20px">${sorted[0] ? fmtDate(sorted[0].date) : '–'}</div></div>`;
+  }
+
+  // ---------- Log ----------
+  const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  function renderLog() {
+    const list = sortedMatches();
+    const n = state.players.map(p => firstLine(p.name));
+    $('#log').innerHTML = list.length ? list.map(m => `
+      <li>
+        <span class="dot" style="background:${m.winner ? 'var(--yellow)' : 'var(--blue)'}"></span>
+        <div><div class="who">${esc(n[m.winner])} won</div><div class="meta">${fmtDate(m.date)}${m.note ? ' · ' + esc(m.note) : ''}</div></div>
+        <div class="scoreline">${esc(m.score || '')}</div>
+        <button class="icon-btn" data-del="${m.id}" title="Delete match" aria-label="Delete match">✕</button>
+      </li>`).join('') : `<li class="empty" style="display:block;background:none">No matches yet. Go play!</li>`;
+  }
+  $('#log').addEventListener('click', (e) => {
+    const id = e.target.closest('[data-del]')?.dataset.del;
+    if (!id) return;
+    const idx = state.matches.findIndex(m => m.id === id);
+    const [removed] = state.matches.splice(idx, 1);
+    save(); renderAll();
+    toast('Match deleted', () => { state.matches.push(removed); save(); renderAll(); });
+  });
+
+  function renderAll() { renderPlayers(); const w = renderScore(); renderStats(w); renderLog(); }
+
+  // ---------- Add win ----------
+  const dlg = $('#winDialog');
+  let pendingWinner = 0;
+  $$('[data-win]').forEach(b => b.addEventListener('click', () => {
+    pendingWinner = +b.dataset.win;
+    $('#winTitle').textContent = `${firstLine(state.players[pendingWinner].name)} wins 🎾`;
+    $('#winSave').className = `btn small ${pendingWinner ? 'p2' : 'p1'}`;
+    $('#winScore').value = ''; $('#winNote').value = ''; $('#winDate').value = today();
+    dlg.showModal();
+  }));
+  dlg.addEventListener('close', () => {
+    if (dlg.returnValue !== 'ok') return;
+    const m = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      winner: pendingWinner,
+      date: $('#winDate').value || today(),
+      score: $('#winScore').value.trim(),
+      note: $('#winNote').value.trim()
+    };
+    state.matches.push(m); save(); renderAll();
+    toast(`+1 for ${firstLine(state.players[m.winner].name)}`, () => {
+      state.matches = state.matches.filter(x => x.id !== m.id); save(); renderAll();
+    });
+  });
+
+  // ---------- Tabs ----------
+  const tabs = $$('.tab');
+  function selectTab(name) {
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    $('#panel-bio').hidden = name !== 'bio';
+    $('#panel-log').hidden = name !== 'log';
+    moveBar();
+  }
+  function moveBar() {
+    const t = $('.tab.active'), track = $('.track');
+    const tr = track.getBoundingClientRect(), r = t.getBoundingClientRect();
+    const w = Math.min(72, r.width);
+    Object.assign($('.track .bar').style, { left: (r.left - tr.left) + 'px', width: w + 'px' });
+  }
+  tabs.forEach(t => t.addEventListener('click', () => selectTab(t.dataset.tab)));
+  window.addEventListener('resize', moveBar);
+  document.fonts?.ready.then(moveBar);
+
+  // ---------- Toast ----------
+  let toastTimer, undoFn;
+  function toast(msg, undo) {
+    $('#toastMsg').textContent = msg; undoFn = undo;
+    $('#toastUndo').style.display = undo ? '' : 'none';
+    $('#toast').classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 4000);
+  }
+  $('#toastUndo').addEventListener('click', () => { undoFn?.(); undoFn = null; $('#toast').classList.remove('show'); });
+
+  // ---------- Export / import / reset ----------
+  $('#exportBtn').addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `tennis-h2h-${today()}.json` });
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  $('#importBtn').addEventListener('click', () => $('#importInput').click());
+  $('#importInput').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      if (!Array.isArray(data.players) || !Array.isArray(data.matches)) throw 0;
+      state = data; save(); renderAll(); toast('Imported');
+    } catch { alert('That file doesn\'t look like a head-to-head export.'); }
+  });
+  $('#resetBtn').addEventListener('click', () => {
+    if (!confirm('Clear all matches? Names and photos stay.')) return;
+    const prev = state.matches; state.matches = []; save(); renderAll();
+    toast('All matches cleared', () => { state.matches = prev; save(); renderAll(); });
+  });
+
+  renderAll();
+  moveBar();
+})();
+</script>
+</body>
+</html>
