@@ -1,16 +1,22 @@
-// Shared head-to-head board for /tennis, stored in Redis (Upstash REST API).
-// Connect a Redis database in Vercel (Storage → Upstash Redis); Vercel then sets
-// KV_REST_API_URL / KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_URL / _TOKEN).
+// Shared head-to-head board for /tennis.
+// Storage, whichever is connected to the Vercel project (Storage tab):
+//   - Vercel Blob  → BLOB_READ_WRITE_TOKEN
+//   - Upstash Redis → KV_REST_API_URL / KV_REST_API_TOKEN (or UPSTASH_REDIS_REST_*)
+// Both backends do compare-and-set writes so simultaneous updates aren't lost.
 
-const URL_ = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const KEY = 'tennis-h2h:default';
+import { get, head, put, BlobAccessError, BlobNotFoundError, BlobPreconditionFailedError } from '@vercel/blob';
+
 const MAX_MATCHES = 5000;
 
+// ---------- Redis (Upstash REST) ----------
+const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+const REDIS_KEY = 'tennis-h2h:default';
+
 async function redis(...cmd) {
-  const r = await fetch(URL_, {
+  const r = await fetch(REDIS_URL, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(cmd),
   });
   const j = await r.json();
@@ -18,6 +24,81 @@ async function redis(...cmd) {
   return j.result;
 }
 
+const redisStore = {
+  async read() {
+    const raw = await redis('GET', REDIS_KEY);
+    return { raw, version: raw };
+  },
+  async write(raw, version) {
+    const ok = version
+      ? await redis('EVAL',
+          "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2]) return 1 else return 0 end",
+          '1', REDIS_KEY, version, raw)
+      : await redis('SET', REDIS_KEY, raw, 'NX');
+    return ok === 1 || ok === 'OK';
+  },
+};
+
+// ---------- Vercel Blob ----------
+const BLOB_PATH = 'tennis-h2h/board.json';
+// A Blob store is either private or public. The blob URL says which; for a brand-new
+// board we find out by trying private first. BLOB_ACCESS can force one.
+let blobAccess = process.env.BLOB_ACCESS || null;
+
+async function blobMeta() {
+  try { return await head(BLOB_PATH); }
+  catch (e) { if (e instanceof BlobNotFoundError) return null; throw e; }
+}
+
+const blobStore = {
+  async read() {
+    const meta = await blobMeta();
+    if (!meta) return { raw: null, version: null };
+    blobAccess = /[./]private[./]/.test(meta.url) ? 'private' : 'public';
+    let raw;
+    if (blobAccess === 'private') {
+      const r = await get(meta.url, { access: 'private', useCache: false });
+      if (!r || r.statusCode !== 200) return { raw: null, version: null };
+      raw = await new Response(r.stream).text();
+    } else {
+      // Public blobs sit behind a CDN; key the URL on the etag so we never read an old copy.
+      const r = await fetch(`${meta.url}?v=${encodeURIComponent(meta.etag)}`, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`Blob fetch HTTP ${r.status}`);
+      raw = await r.text();
+    }
+    return { raw, version: meta.etag };
+  },
+  async write(raw, version) {
+    const attempt = (access) => put(BLOB_PATH, raw, {
+      access,
+      contentType: 'application/json',
+      addRandomSuffix: false,
+      cacheControlMaxAge: 60,
+      ...(version ? { ifMatch: version } : { allowOverwrite: false }),
+    });
+    const first = blobAccess || 'private';
+    const other = first === 'private' ? 'public' : 'private';
+    try {
+      try { await attempt(first); blobAccess = first; }
+      catch (e) {
+        // Wrong access type for this store: try the other one once.
+        if (!(e instanceof BlobAccessError) && !/access|private|public/i.test(String(e?.message))) throw e;
+        await attempt(other); blobAccess = other;
+      }
+      return true;
+    } catch (e) {
+      // Someone else wrote first (etag changed, or the board was just created).
+      if (e instanceof BlobPreconditionFailedError || /precondition|already exists/i.test(String(e?.message))) return false;
+      throw e;
+    }
+  },
+};
+
+const store = process.env.BLOB_READ_WRITE_TOKEN ? blobStore
+  : REDIS_URL && REDIS_TOKEN ? redisStore
+  : null;
+
+// ---------- Board rules ----------
 const str = (v, max) => String(v ?? '').slice(0, max);
 const cleanMatch = (m) => ({
   id: str(m.id, 40),
@@ -67,31 +148,27 @@ function apply(state, op) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (!URL_ || !TOKEN) return res.status(503).json({ error: 'not_configured' });
+  if (!store) return res.status(503).json({ error: 'not_configured' });
   try {
     if (req.method === 'GET') {
-      const raw = await redis('GET', KEY);
+      const { raw } = await store.read();
       return res.status(200).json({ state: raw ? JSON.parse(raw) : null });
     }
     if (req.method === 'POST') {
       const op = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-      // Optimistic concurrency: retry if someone else wrote in between.
-      for (let attempt = 0; attempt < 5; attempt++) {
-        const raw = await redis('GET', KEY);
+      // Optimistic concurrency: re-read and retry if someone else wrote in between.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { raw, version } = await store.read();
         const next = apply(raw ? cleanState(JSON.parse(raw)) : cleanState(), op);
-        const nextRaw = JSON.stringify(next);
-        const ok = raw
-          ? await redis('EVAL',
-              "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2]) return 1 else return 0 end",
-              '1', KEY, raw, nextRaw)
-          : await redis('SET', KEY, nextRaw, 'NX');
-        if (ok === 1 || ok === 'OK') return res.status(200).json({ state: next });
+        if (await store.write(JSON.stringify(next), version)) return res.status(200).json({ state: next });
+        await new Promise(r => setTimeout(r, 80 + Math.random() * 200));
       }
       return res.status(409).json({ error: 'busy' });
     }
     res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method_not_allowed' });
   } catch (e) {
+    console.error(e);
     return res.status(500).json({ error: String(e.message || e) });
   }
 }
