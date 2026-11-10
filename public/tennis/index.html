@@ -165,6 +165,11 @@
 
   .footer { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 40px; }
 
+  .sync { text-align: center; color: var(--muted); font-size: 13px; margin: 16px 0 0; }
+  .sync::before { content: "●"; margin-right: 6px; color: var(--muted); }
+  .sync[data-kind="ok"]::before { color: #4ade80; }
+  .sync[data-kind="warn"]::before { color: #fbbf24; }
+
   /* ---------- Modal ---------- */
   dialog {
     border: 0; border-radius: 20px; padding: 24px; width: min(420px, calc(100vw - 32px));
@@ -261,6 +266,8 @@
     <button class="btn ghost small" id="resetBtn">Reset</button>
   </div>
 
+  <p class="sync" id="syncStatus" data-kind="">Connecting…</p>
+
   <input type="file" id="photoInput" accept="image/*" hidden />
   <input type="file" id="importInput" accept="application/json" hidden />
 </main>
@@ -315,7 +322,71 @@
 
   let state;
   try { state = JSON.parse(localStorage.getItem(KEY)) || defaults(); } catch { state = defaults(); }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { alert('Could not save (storage full?). Try a smaller photo.'); } };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* cache only */ } };
+
+  // Apply an operation locally (same rules as /api/h2h), then send it to the shared board.
+  function apply(op) {
+    if (op.t === 'add') { if (!state.matches.some(m => m.id === op.match.id)) state.matches.push(op.match); }
+    else if (op.t === 'del') state.matches = state.matches.filter(m => m.id !== op.id);
+    else if (op.t === 'restore') op.matches.forEach(m => { if (!state.matches.some(x => x.id === m.id)) state.matches.push(m); });
+    else if (op.t === 'clear') state.matches = [];
+    else if (op.t === 'player') Object.assign(state.players[op.i], op.patch);
+    else if (op.t === 'replace') state = JSON.parse(JSON.stringify(op.state));
+  }
+  let online = null;      // null = unknown, true = shared board, false = this device only
+  let pending = 0;        // ops in flight; ignore polls meanwhile
+  const queue = [];       // ops to send once back online
+  function send(op) {
+    apply(op); save(); renderAll();
+    queue.push(op); flush();
+  }
+  async function flush() {
+    if (online === false || pending || !queue.length) return;
+    const op = queue[0];
+    pending++;
+    try {
+      const r = await fetch('/api/h2h', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(op) });
+      if (r.status === 503 || r.status === 404) { setOnline(false); return; }
+      if (!r.ok) throw new Error(r.status);
+      queue.shift();
+      const { state: remote } = await r.json();
+      if (!queue.length && remote) { state = remote; save(); renderAll(); }
+      setOnline(true);
+    } catch (e) {
+      setStatus('Not synced yet, retrying…', 'warn');
+      setTimeout(flush, 4000);
+      return;
+    } finally { pending--; }
+    if (queue.length) flush();
+  }
+  async function pull() {
+    if (pending || queue.length || document.hidden) return;
+    try {
+      const r = await fetch('/api/h2h', { cache: 'no-store' });
+      if (r.status === 503 || r.status === 404) return setOnline(false);
+      if (!r.ok) throw new Error(r.status);
+      const { state: remote } = await r.json();
+      if (pending || queue.length) return;
+      if (!remote) {
+        // Empty shared board: seed it with what this device already has.
+        setOnline(true);
+        if (state.matches.length) { queue.push({ t: 'replace', state }); flush(); }
+        return;
+      }
+      setOnline(true);
+      if (JSON.stringify(remote) !== JSON.stringify(state)) { state = remote; save(); renderAll(); }
+    } catch (e) {
+      setStatus('Offline, showing last saved data', 'warn');
+    }
+  }
+  function setOnline(v) {
+    online = v;
+    setStatus(v ? 'Live, synced with everyone on this link' : 'Saved on this device only', v ? 'ok' : 'warn');
+  }
+  function setStatus(text, kind) {
+    const el = document.getElementById('syncStatus');
+    if (el) { el.textContent = text; el.dataset.kind = kind; }
+  }
 
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -331,13 +402,13 @@
   playerEls.forEach((el, i) => {
     const sel = $('select', el);
     sel.innerHTML = COUNTRIES.map(([c]) => `<option value="${c}">${c}</option>`).join('');
-    sel.addEventListener('change', () => { state.players[i].country = sel.value; save(); renderPlayers(); });
+    sel.addEventListener('change', () => send({ t: 'player', i, patch: { country: sel.value } }));
 
     const nameEl = $('.name', el);
     nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); nameEl.blur(); } });
     nameEl.addEventListener('blur', () => {
       const v = nameEl.innerText.trim() || `Player ${i + 1}`;
-      state.players[i].name = v; save(); renderAll();
+      if (v !== state.players[i].name) send({ t: 'player', i, patch: { name: v } }); else renderAll();
     });
 
     $('.avatar', el).addEventListener('click', () => { photoTarget = i; $('#photoInput').click(); });
@@ -347,8 +418,7 @@
   $('#photoInput').addEventListener('change', async (e) => {
     const file = e.target.files[0]; e.target.value = '';
     if (!file) return;
-    state.players[photoTarget].photo = await resizeImage(file, 320);
-    save(); renderPlayers();
+    send({ t: 'player', i: photoTarget, patch: { photo: await resizeImage(file, 240) } });
   });
 
   function resizeImage(file, size) {
@@ -461,10 +531,10 @@
   $('#log').addEventListener('click', (e) => {
     const id = e.target.closest('[data-del]')?.dataset.del;
     if (!id) return;
-    const idx = state.matches.findIndex(m => m.id === id);
-    const [removed] = state.matches.splice(idx, 1);
-    save(); renderAll();
-    toast('Match deleted', () => { state.matches.push(removed); save(); renderAll(); });
+    const removed = state.matches.find(m => m.id === id);
+    if (!removed) return;
+    send({ t: 'del', id });
+    toast('Match deleted', () => send({ t: 'restore', matches: [removed] }));
   });
 
   function renderAll() { renderPlayers(); const w = renderScore(); renderStats(w); renderLog(); }
@@ -490,10 +560,8 @@
       score: $('#winScore').value.trim(),
       note: $('#winNote').value.trim()
     };
-    state.matches.push(m); save(); renderAll();
-    toast(`+${m.count} for ${firstLine(state.players[m.winner].name)}`, () => {
-      state.matches = state.matches.filter(x => x.id !== m.id); save(); renderAll();
-    });
+    send({ t: 'add', match: m });
+    toast(`+${m.count} for ${firstLine(state.players[m.winner].name)}`, () => send({ t: 'del', id: m.id }));
   });
 
   function syncCount(v) {
@@ -550,17 +618,22 @@
     try {
       const data = JSON.parse(await f.text());
       if (!Array.isArray(data.players) || !Array.isArray(data.matches)) throw 0;
-      state = data; save(); renderAll(); toast('Imported');
+      send({ t: 'replace', state: data }); toast('Imported');
     } catch { alert('That file doesn\'t look like a head-to-head export.'); }
   });
   $('#resetBtn').addEventListener('click', () => {
     if (!confirm('Clear all matches? Names and photos stay.')) return;
-    const prev = state.matches; state.matches = []; save(); renderAll();
-    toast('All matches cleared', () => { state.matches = prev; save(); renderAll(); });
+    const prev = state.matches.slice();
+    send({ t: 'clear' });
+    toast('All matches cleared', () => send({ t: 'restore', matches: prev }));
   });
 
   renderAll();
   moveBar();
+  pull();
+  setInterval(pull, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+  window.addEventListener('focus', pull);
 })();
 </script>
 </body>
