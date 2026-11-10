@@ -177,6 +177,17 @@
     width: 100%; font: inherit; font-size: 16px; color: var(--text);
     background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
   }
+  .stepper { display: grid; grid-template-columns: 52px 1fr 52px; gap: 8px; }
+  .stepper input { text-align: center; font-weight: 800; font-size: 22px; padding: 8px; -moz-appearance: textfield; }
+  .stepper input::-webkit-inner-spin-button, .stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .step, .chip {
+    font: inherit; font-weight: 700; color: var(--text); cursor: pointer;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .step { font-size: 24px; }
+  .chips { display: flex; gap: 8px; margin-top: 8px; }
+  .chip { flex: 1; padding: 8px 0; font-size: 15px; }
+  .chip.on { background: var(--blue); border-color: var(--blue); }
   dialog .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; }
 
   .toast {
@@ -257,6 +268,19 @@
 <dialog id="winDialog">
   <form method="dialog" id="winForm">
     <h3 id="winTitle">New win</h3>
+    <label for="winCount">Number of wins</label>
+    <div class="stepper">
+      <button type="button" class="step" data-step="-1" aria-label="One less">−</button>
+      <input id="winCount" type="number" inputmode="numeric" min="1" max="99" value="1" />
+      <button type="button" class="step" data-step="1" aria-label="One more">+</button>
+    </div>
+    <div class="chips">
+      <button type="button" class="chip" data-count="1">1</button>
+      <button type="button" class="chip" data-count="3">3</button>
+      <button type="button" class="chip" data-count="5">5</button>
+      <button type="button" class="chip" data-count="9">9</button>
+      <button type="button" class="chip" data-count="10">10</button>
+    </div>
     <label for="winScore">Score (optional)</label>
     <input id="winScore" placeholder="6-4 3-6 7-5" autocomplete="off" />
     <label for="winDate">Date</label>
@@ -300,6 +324,7 @@
   const firstLine = (n) => n.replace(/\n/g, ' ').trim() || 'Player';
   const initials = (n) => n.split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
   const flagEmoji = (iso) => iso.toUpperCase().replace(/./g, c => String.fromCodePoint(0x1F1A5 + c.charCodeAt(0)));
+  const cnt = (m) => Math.max(1, parseInt(m.count, 10) || 1);
   const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   // ---------- Players ----------
@@ -363,7 +388,7 @@
   const C = 2 * Math.PI * 44;
   let lastWins = null;
   function renderScore() {
-    const w = [0, 1].map(i => state.matches.filter(m => m.winner === i).length);
+    const w = [0, 1].map(i => state.matches.filter(m => m.winner === i).reduce((a, m) => a + cnt(m), 0));
     [0, 1].forEach(i => {
       const el = $('#s' + i);
       el.textContent = w[i];
@@ -386,12 +411,13 @@
 
   // ---------- Stats ----------
   function streak() {
-    const sorted = sortedMatches();
+    const sorted = expanded();
     if (!sorted.length) return null;
     const who = sorted[0].winner; let n = 0;
     for (const m of sorted) { if (m.winner === who) n++; else break; }
     return { who, n };
   }
+  function expanded() { return sortedMatches().flatMap(m => Array(cnt(m)).fill(m)); }
   function sortedMatches() {
     return [...state.matches].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   }
@@ -399,7 +425,7 @@
     const total = w[0] + w[1];
     const n = state.players.map(p => firstLine(p.name));
     const s = streak();
-    const sorted = sortedMatches();
+    const sorted = expanded();
     const last5 = sorted.slice(0, 5);
     const form = (i) => last5.length ? last5.map(m => m.winner === i ? 'W' : 'L').join(' ') : '–';
     const pct = (i) => total ? Math.round(w[i] / total * 100) + '%' : '–';
@@ -427,7 +453,7 @@
     $('#log').innerHTML = list.length ? list.map(m => `
       <li>
         <span class="dot" style="background:${m.winner ? 'var(--yellow)' : 'var(--blue)'}"></span>
-        <div><div class="who">${esc(n[m.winner])} won</div><div class="meta">${fmtDate(m.date)}${m.note ? ' · ' + esc(m.note) : ''}</div></div>
+        <div><div class="who">${esc(n[m.winner])} won${cnt(m) > 1 ? ' ×' + cnt(m) : ''}</div><div class="meta">${fmtDate(m.date)}${m.note ? ' · ' + esc(m.note) : ''}</div></div>
         <div class="scoreline">${esc(m.score || '')}</div>
         <button class="icon-btn" data-del="${m.id}" title="Delete match" aria-label="Delete match">✕</button>
       </li>`).join('') : `<li class="empty" style="display:block;background:none">No matches yet. Go play!</li>`;
@@ -450,6 +476,7 @@
     pendingWinner = +b.dataset.win;
     $('#winTitle').textContent = `${firstLine(state.players[pendingWinner].name)} wins 🎾`;
     $('#winSave').className = `btn small ${pendingWinner ? 'p2' : 'p1'}`;
+    setCount(1);
     $('#winScore').value = ''; $('#winNote').value = ''; $('#winDate').value = today();
     dlg.showModal();
   }));
@@ -458,15 +485,29 @@
     const m = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       winner: pendingWinner,
+      count: Math.min(99, Math.max(1, parseInt($('#winCount').value, 10) || 1)),
       date: $('#winDate').value || today(),
       score: $('#winScore').value.trim(),
       note: $('#winNote').value.trim()
     };
     state.matches.push(m); save(); renderAll();
-    toast(`+1 for ${firstLine(state.players[m.winner].name)}`, () => {
+    toast(`+${m.count} for ${firstLine(state.players[m.winner].name)}`, () => {
       state.matches = state.matches.filter(x => x.id !== m.id); save(); renderAll();
     });
   });
+
+  function syncCount(v) {
+    $$('.chip').forEach(c => c.classList.toggle('on', +c.dataset.count === v));
+    $('#winSave').textContent = v > 1 ? `Save ${v} wins` : 'Save win';
+  }
+  function setCount(v) {
+    v = Math.min(99, Math.max(1, parseInt(v, 10) || 1));
+    $('#winCount').value = v;
+    syncCount(v);
+  }
+  $$('.step').forEach(b => b.addEventListener('click', () => setCount(+$('#winCount').value + +b.dataset.step)));
+  $$('.chip').forEach(b => b.addEventListener('click', () => setCount(b.dataset.count)));
+  $('#winCount').addEventListener('input', () => syncCount(parseInt($('#winCount').value, 10)));
 
   // ---------- Tabs ----------
   const tabs = $$('.tab');
