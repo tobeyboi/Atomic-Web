@@ -40,13 +40,21 @@ const redisStore = {
 };
 
 // ---------- Vercel Blob ----------
+// Vercel connects a Blob store either with a read-write token (BLOB_READ_WRITE_TOKEN,
+// possibly under a custom prefix) or with OIDC (BLOB_STORE_ID + the function's OIDC token).
+const envName = (re) => Object.keys(process.env).find(k => re.test(k) && process.env[k]);
+const BLOB_TOKEN_VAR = envName(/^BLOB_READ_WRITE_TOKEN$/) || envName(/BLOB_READ_WRITE_TOKEN$/) || envName(/READ_WRITE_TOKEN$/);
+const BLOB_STORE_VAR = envName(/^BLOB_STORE_ID$/) || envName(/BLOB_STORE_ID$/);
+const blobAuth = BLOB_TOKEN_VAR ? { token: process.env[BLOB_TOKEN_VAR] }
+  : BLOB_STORE_VAR ? { storeId: process.env[BLOB_STORE_VAR] }
+  : null;
 const BLOB_PATH = 'tennis-h2h/board.json';
 // A Blob store is either private or public. The blob URL says which; for a brand-new
 // board we find out by trying private first. BLOB_ACCESS can force one.
 let blobAccess = process.env.BLOB_ACCESS || null;
 
 async function blobMeta() {
-  try { return await head(BLOB_PATH); }
+  try { return await head(BLOB_PATH, blobAuth); }
   catch (e) { if (e instanceof BlobNotFoundError) return null; throw e; }
 }
 
@@ -57,7 +65,7 @@ const blobStore = {
     blobAccess = /[./]private[./]/.test(meta.url) ? 'private' : 'public';
     let raw;
     if (blobAccess === 'private') {
-      const r = await get(meta.url, { access: 'private', useCache: false });
+      const r = await get(meta.url, { ...blobAuth, access: 'private', useCache: false });
       if (!r || r.statusCode !== 200) return { raw: null, version: null };
       raw = await new Response(r.stream).text();
     } else {
@@ -70,6 +78,7 @@ const blobStore = {
   },
   async write(raw, version) {
     const attempt = (access) => put(BLOB_PATH, raw, {
+      ...blobAuth,
       access,
       contentType: 'application/json',
       addRandomSuffix: false,
@@ -94,7 +103,7 @@ const blobStore = {
   },
 };
 
-const store = process.env.BLOB_READ_WRITE_TOKEN ? blobStore
+const store = blobAuth ? blobStore
   : REDIS_URL && REDIS_TOKEN ? redisStore
   : null;
 
@@ -148,7 +157,11 @@ function apply(state, op) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (!store) return res.status(503).json({ error: 'not_configured' });
+  if (!store) {
+    // Names only (never values), to help see what the project has connected.
+    const seen = Object.keys(process.env).filter(k => /BLOB|KV_|REDIS|UPSTASH/i.test(k));
+    return res.status(503).json({ error: 'not_configured', env: seen });
+  }
   try {
     if (req.method === 'GET') {
       const { raw } = await store.read();
